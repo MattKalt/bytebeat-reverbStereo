@@ -42,7 +42,7 @@ m = mix = (x, vol=1, dist=0) => ( ( x * vol * ( 1 + dist ) ) % ( 256 * vol ) ) |
 	Works best when effects are not inside conditionals (meaning the number of F in use changes)
 	But even then, should only create a momentary click/pop (might be more severe for reverb)
 */
-T ? 0 : F = r( 2800, 0 ),
+T ? 0 : F = r( 2e3, 0 ),
 // Index of F, resets to 0 at every t
 I = 0,
 
@@ -81,28 +81,37 @@ h = seq( [h,h,h,0], 8), //quieter, faster attack
 	requires old lp(), new hp(), lim2(), r(), and slidy seq() to function
 */
 
-rvs = reverbStereo = ( input, len = 16e3, vibratoSpeed = [91,83,77,67,5], dry = .4, wet = .6, feedb =.6, dsp = 3, lerpx=4, highpass=.1, lowpass = .7, compAtk = 9, compRel = 1, compThresh = 9, vibratoDepth = 299, t2 ) => (
-	vcs = vibratoSpeed.length,
-	t2 ??= r(vcs, T ), //array of all T the same size as vibratoSpeed[], could also be T/2 if specified in args
-	x = y => I + vcs*3 + ( (y % len) / dsp )|0, //index within allocated fx memory
-	fbh=[], out=[0,0],
+rvs = reverbStereo = (
+	input,
+	len = 16e3,
+	vibratoSpeed = [91,83,77,67,5], //must be 2 or larger
+	dry = .4,
+	wet = .6,
+	feedb =.6, //best results between .6-.86
+	downsamp = 3, //can be any float over 1
+	lerpx=4, //0 = no interpolation, 1=linear, 2=quadratic, etc.
+	highpass=.1,
+	lowpass = .7,
+	compAtk = 9,
+	compRel = 1,
+	compThresh = 9, //~9 for bytebeat range (0-255), adjust accordingly for smaller ranges
+	vibratoDepth = 299, //best around 300, lower=feedbackier
+	voices = vibratoSpeed.length,
+	t2 = r(voices, T ), //array of all T the same size as vibratoSpeed[], could also be T/2 if specified in args
+) => (
+	x = y => I + voices*3 + ( (y % len) / downsamp )|0, //index within allocated fx memory
+	fbh=[], out=[0,0], //can reuse fbh to save chars, but first 2 outputs will be double volume
 	t2.map( (t2val,i)=> (
 		t2val += vibratoDepth + vibratoDepth * sin(T*vibratoSpeed[i]/3e6),
-		//fbh[i] = seq( F, 0, x(t2val), lerpx )||0
 		fbh[i] = hp( lp2( seq( F, 0, x(t2val) - i*2, lerpx )||0 , lowpass), highpass)
 	)),
-	F[ x(T) ] = //lp2(
-		//hp(
-			input * (1-feedb) +
-			fbh.reduce((a,e,i)=> a=lim2(
-				a+e, compAtk,compRel/vcs,compThresh/vcs*(1+i/2)
-			) * feedb )
-		//, highpass )
-	//, lowpass ),
+	F[ x(T) ] = input * (1-feedb) + fbh.reduce((a,e,i)=> a=lim2(
+				a+e, compAtk, compRel/voices, compThresh/voices*(1+i/2)
+		) * feedb )
 	,
-	I += 0|(len / dsp) + vcs*3,
-	//o.map((e,i)=>o[i%2]+=e*wet+input*dry/vcs),o //first 2 voices will be double volume
-	fbh.map((e,i)=>out[i%2]+=e*wet+input*dry/vcs),out
+	I += 0|(len / downsamp) + voices*3,
+	//fbh.map((e,i)=>fbh[i%2]+=e*wet+input*dry/voices) //first 2 voices will be double volume
+	fbh.map((e,i)=>out[i%2]+=e*wet+input*dry/voices),out
 ),
 
 
@@ -136,37 +145,36 @@ s2s = sinify = x => sin( x*PI/64 ) * 126 + 128,
 
 t||(
 
+ml1='64835582659355636583658265826421',
+
 bs1 = [-4,1,-4,-7,-9,-11,-2,3],
 
-vibSpeeds = [91,7] //2
+//vibSpeeds = [91,7]
+//vibSpeeds = [91,51,23,7]
 //vibSpeeds = [91,83,77,67,7,5,3,2]
 //vibSpeeds = r(16,299).map((e,i)=>e/1.618**(i/2))
+vibSpeeds = r(8,199).map((e,i)=>e/1.618**i)
 
 ),
 
 
 BS = s2s(mseq(bs1,15)),
 //BS *= min(bt([1],12)/25,2),
-BS *= lp2(min(bt([1],12,1,15e2),1.2),.1),
+BS *= lp2(min(bt([1],12,20,60),4),.1),
+BS *= 64/max(64, abs(BS)),
 
+mel2=ml1[t>>11&31]*t%100*(1-t%2048/2048),
 
-
-mel2='64835582659355636583658265826421'[t>>11&31]*t%100*(1-t%2048/2048),
-
-//V=rvs(mel&255, 16e3, [91,83,77,67,7,5,3,2], .5, .5, .7 ),
-
-//V=rvs( (mel2&255) + (mseq(bs1,15)&63)/4, 11e3, vibSpeeds, .25, .5, .8 - cos(t/3e5)/16, 6, 0, .1, .5, 9, 1, 9, 299 ),
 
 V=rvs( (mel2&255) + (mseq(bs1,15)&63)/4, 11e3, vibSpeeds, .25, .5, .8 - cos(t/3e5)/16, 6, 0, .1, .5, 9, 1, 9, 299 ),
 
 
-
 Master=ch=>tanh(
 	hp(
-		V[ch] * 6 + BS * min(1,T/8e5)
+		V[ch] * 6 + BS * min(2,T/5e5)
 		//mel&255
 	,.001)
-/128),
+/max(64,99-T/5e4)),
 
 [Master(0),Master(1)]
 
