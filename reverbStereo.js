@@ -3,7 +3,6 @@ T = t,
 
 t *= r8 = 10 / 48,
 
-
 //seq = ( arr, spd, t2=t ) => arr[ (t2 >> spd) % arr.length ],
 /*version that lerps:
 	the 'x' argument controls the speed at which the slides happen (1=very slidy, 99=almost none, 0=none) */
@@ -12,7 +11,7 @@ seq=(r,s,t2=t,x=0)=>(i=t2/2**s,J=i|0,L=r.length,x?(k=(i-J)**x,(1-k)*r[J%L]+k*r[(
 //----SONG SETTINGS-----
 
 //master pitch
-mp = -3.7,
+mp = -4,
 
 
 
@@ -75,9 +74,11 @@ h = 1 & T * 441/480, // long Hihat
 h = seq( [h,h,h,0], 8), //quieter, faster attack
 
 /*
-	Stereo delay with multiple heads (sorta similar to feeshbread's multitap delay in Dead Data)
+	Stereo delay with multiple heads and a chorusey effect
+	inspired by Feeshbread's Dead Data echo,
+	but using the GAv2 reverb's downsampling
+	(and some messy magic numbers to keep gain in line, save memory and chars, etc)
 	single input, outputs an array size 2
-	t2 and vibratospeed must have the same length (arbitrary)
 	requires old lp(), new hp(), lim2(), r(), and slidy seq() to function
 */
 
@@ -168,9 +169,9 @@ BS *= 64/max(64, abs(BS)),
 mel=ml1[t>>11&31]*t%100*(1-t%2048/2048),
 chords=(mseq(bs1,15)&63)/4,
 
-V=rvs( mel + chords, 11e3, vibSpeeds, .25, .5, .8 - cos(t/3e5)/16, 6, 0, .1, .5, 9, 1, 9, 299 ),
-//V=rvs( mel + chords, 11e3, vibSpeeds, .25, .5, .8 - cos(t/3e5)/16, 6, 2, .1, .5, 9, 1, 9, 299, 8,[T,T,T/2,T*3/2,T/2,T*2,T/2,T] ), //really cool effect
-//V=rvs( mel + chords, 7e3, vibSpeeds, .25, .7, .9 - cos(t/3e5)/16, 4, 2, .1, .5, 9, 1, 9, 99, 8,[T,T*3/4,T/2,T*3/2,T/2,T*2,T/2,T] ), //trippy octaving
+V=rvs( mel + chords, 11e3, vibSpeeds, .25, .5, .8 - cos(T/3e5)/16, 6, 0, .1, .5, 9, 1, 9, 299 ),
+
+//V=rvs( mel + chords, 7e3, vibSpeeds, .2, .8, .9, 4, 2, .1, .5, 9, 1, 9, 199 + cos(T/3e5)*99, 8,[T,T*3/4,T/2,T*3/2,T/2,T*2,T/2,T] ), //trippy octaving
 
 
 
@@ -180,7 +181,7 @@ Master=ch=>tanh(
 		V[ch] * 6 + BS * min(2,T/5e5)
 		//mel&255
 	,.001)
-/max(64,199-T/5e4))*1.5,
+/max(64,128-T/5e4))*1.2,
 
 [Master(0),Master(1)]
 
