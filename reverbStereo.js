@@ -38,7 +38,7 @@ m = mix = (x, vol=1, dist=0) => ( ( x * vol * ( 1 + dist ) ) % ( 256 * vol ) ) |
 /*
 	F is the FX stack, stores memory for use in effects
 	Automatically keeps track of what's stored where
-	If you see red (NaNs), raise 2032 higher, or adjust your reverbs' 'dsp' variable (and limiters' lookahead)
+	If you see red (NaNs), raise 2e3 higher, or adjust your reverbs' 'dsp' variable (and limiters' lookahead)
 	Works best when effects are not inside conditionals (meaning the number of F in use changes)
 	But even then, should only create a momentary click/pop (might be more severe for reverb)
 */
@@ -103,7 +103,7 @@ rvs = reverbStereo = (
 	fbh=[], out=[0,0], //can reuse fbh to save chars, but first 2 outputs will be double volume
 	t2.map( (t2val,i)=> (
 		t2val += vibratoDepth + vibratoDepth * sin(T*vibratoSpeed[i]/3e6),
-		fbh[i] = hp( lp2( seq( F, 0, x(t2val) - i*2, lerpx )||0 , lowpass), highpass)
+		fbh[i] = hp( lp( seq( F, 0, x(t2val) - i*2, lerpx )||0 , lowpass), highpass)
 	)),
 	F[ x(T) ] = input * (1-feedb) + fbh.reduce((a,e,i)=> a=lim2(
 				a+e, compAtk, compRel/voices, compThresh/voices*(1+i/2)
@@ -116,23 +116,23 @@ rvs = reverbStereo = (
 
 
 //bad lopass (turns things into triangles rather than sins) but good for compressor
-lp = lopass = (input, freq, bias=1) => // f ~= frequency, but not 1:1
+lp2 = lopass = (input, freq, bias=1) => // f ~= frequency, but not 1:1
 	// F[I] is the value of the last sample
 	// You will need to change the 'x % 256' if you're using signed or floatbeat
 	F[I] = min( max( input, F[I] - freq), F[I++] + freq * bias)||0 // Clamp the change since last sample between (-f, f)
 ,
 
 //better lopass, especially for hi-pass
-lp2 = (input,freq) =>
+lp = (input,freq) =>
 	F[I] = F[I++] * (1-freq) + input * freq
 ,
 
-hp = (input,freq) => input - lp2(input,freq),
+hp = (input,freq) => input - lp(input,freq),
 
 //simple but bad limiter, uses the bad lopass
 //release must be >0
 lim2 = (input, atk, release, thresh) => (
-	input * thresh / lp(
+	input * thresh / lp2(
 		max( thresh, abs(input))
 	,release, atk/release
 	)||0
@@ -149,24 +149,30 @@ ml1='64835582659355636583658265826421',
 
 bs1 = [-4,1,-4,-7,-9,-11,-2,3],
 
-//vibSpeeds = [91,7]
-//vibSpeeds = [91,51,23,7]
-//vibSpeeds = [91,83,77,67,7,5,3,2]
-//vibSpeeds = r(16,299).map((e,i)=>e/1.618**(i/2))
-vibSpeeds = r(8,199).map((e,i)=>e/1.618**i)
+//vibSpeeds = [91,7],
+//vibSpeeds = [91,51,23,7],
+//vibSpeeds = [91,83,77,67,7,5,3,2],
+//vibSpeeds = r(16,299).map((e,i)=>e/1.618**(i/2)),
+vibSpeeds = r(8,199).map((e,i)=>e/1.618**i),
+
+0
 
 ),
 
 
 BS = s2s(mseq(bs1,15)),
 //BS *= min(bt([1],12)/25,2),
-BS *= lp2(min(bt([1],12,20,60),4),.1),
+BS *= lp(min(bt([1],12,20,60),4),.1),
 BS *= 64/max(64, abs(BS)),
 
-mel2=ml1[t>>11&31]*t%100*(1-t%2048/2048),
+mel=ml1[t>>11&31]*t%100*(1-t%2048/2048),
+chords=(mseq(bs1,15)&63)/4,
+
+V=rvs( mel + chords, 11e3, vibSpeeds, .25, .5, .8 - cos(t/3e5)/16, 6, 0, .1, .5, 9, 1, 9, 299 ),
+//V=rvs( mel + chords, 11e3, vibSpeeds, .25, .5, .8 - cos(t/3e5)/16, 6, 2, .1, .5, 9, 1, 9, 299, 8,[T,T,T/2,T*3/2,T/2,T*2,T/2,T] ), //really cool effect
+//V=rvs( mel + chords, 7e3, vibSpeeds, .25, .7, .9 - cos(t/3e5)/16, 4, 2, .1, .5, 9, 1, 9, 99, 8,[T,T*3/4,T/2,T*3/2,T/2,T*2,T/2,T] ), //trippy octaving
 
 
-V=rvs( (mel2&255) + (mseq(bs1,15)&63)/4, 11e3, vibSpeeds, .25, .5, .8 - cos(t/3e5)/16, 6, 0, .1, .5, 9, 1, 9, 299 ),
 
 
 Master=ch=>tanh(
@@ -174,7 +180,7 @@ Master=ch=>tanh(
 		V[ch] * 6 + BS * min(2,T/5e5)
 		//mel&255
 	,.001)
-/max(64,99-T/5e4)),
+/max(64,199-T/5e4))*1.5,
 
 [Master(0),Master(1)]
 
