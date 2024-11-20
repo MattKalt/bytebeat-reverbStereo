@@ -81,28 +81,6 @@ h = seq( [h,h,h,0], 8), //quieter, faster attack
 	requires old lp(), new hp(), lim2(), r(), and slidy seq() to function
 */
 
-rvs1 = reverbStereo = ( input, len = 16e3, vibratoSpeed = [91,83,77,67,5], dry = .4, wet = .6, feedb =.6, dsp = 3, lerpx=4, highpass=.1, lowpass = .7, compAtk = 9, compRel = 1, compThresh = 9, vibratoDepth = 299, t2 ) => (
-	vcs = vibratoSpeed.length,
-	t2 ??= r(vcs, T ), //array of all T the same size as vibratoSpeed[], could also be T/2 if specified in args
-	x = y => I + vcs + 2 + ( (y % len) / dsp )|0,
-	fbh=[], out=[0,0],
-	t2.map( (t2val,i)=> (
-		t2val += vibratoDepth + vibratoDepth * sin(T*vibratoSpeed[i]/3e6),
-		fbh[i] = seq( F, 0, x(t2val), lerpx )||0
-	)),
-	F[ x(T) ] = lp2(
-		hp(
-			input * (1-feedb) +
-			fbh.reduce((a,e,i)=> a=lim2(
-				a+e, compAtk,compRel,compThresh*(1+i/vcs)
-			) * feedb )
-		, highpass )
-	, lowpass ),
-	I += 0|(len / dsp) + vcs + 2,
-	//o.map((e,i)=>o[i%2]+=e*wet+input*dry/vcs),o //first 2 voices will be double volume
-	fbh.map((e,i)=>out[i%2]+=e*wet+input*dry/vcs),out
-),
-
 rvs = reverbStereo = ( input, len = 16e3, vibratoSpeed = [91,83,77,67,5], dry = .4, wet = .6, feedb =.6, dsp = 3, lerpx=4, highpass=.1, lowpass = .7, compAtk = 9, compRel = 1, compThresh = 9, vibratoDepth = 299, t2 ) => (
 	vcs = vibratoSpeed.length,
 	t2 ??= r(vcs, T ), //array of all T the same size as vibratoSpeed[], could also be T/2 if specified in args
@@ -126,32 +104,6 @@ rvs = reverbStereo = ( input, len = 16e3, vibratoSpeed = [91,83,77,67,5], dry = 
 	//o.map((e,i)=>o[i%2]+=e*wet+input*dry/vcs),o //first 2 voices will be double volume
 	fbh.map((e,i)=>out[i%2]+=e*wet+input*dry/vcs),out
 ),
-
-rvs3 = reverbStereo = ( input, len = 16e3, vibratoSpeed = [91,83,77,67,5], dry = .4, wet = .6, feedb =.6, dsp = 3, lerpx=4, highpass=.1, lowpass = .7, compAtk = 9, compRel = 1, compThresh = 9, vibratoDepth = 299, t2 ) => (
-	vcs = vibratoSpeed.length,
-	t2 ??= r(vcs, T ), //array of all T the same size as vibratoSpeed[], could also be T/2 if specified in args
-	x = y => I + vcs*3 + ( (y % len) / dsp )|0,
-	fbh=[], out=[0,0],
-	t2.map( (t2val,i)=> (
-		t2val += vibratoDepth + vibratoDepth * sin(T*vibratoSpeed[i]/3e6),
-		fbh[i] = seq( F, 0, x(t2val), lerpx )||0
-		//fbh[i] = hp( lp2( seq( F, 0, x(t2val), lerpx )||0 , lowpass), highpass)
-	)),
-	F[ x(T) ] = //lp2(
-		//hp(
-			input * (1-feedb) +
-			fbh.reduce((a,e,i)=> a=lim2( hp ( lp2(
-				a+e, compAtk,compRel/vcs,compThresh/vcs*(1+i/vcs)
-			, lowpass), highpass)
-			) * feedb )
-		//, highpass )
-	//, lowpass ),
-	,
-	I += 0|(len / dsp) + vcs*3,
-	//o.map((e,i)=>o[i%2]+=e*wet+input*dry/vcs),o //first 2 voices will be double volume
-	fbh.map((e,i)=>out[i%2]+=e*wet+input*dry/vcs),out
-),
-
 
 
 //bad lopass (turns things into triangles rather than sins) but good for compressor
