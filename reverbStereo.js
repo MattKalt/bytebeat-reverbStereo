@@ -1,7 +1,9 @@
 //Original t, increments one per sample. The reverb, harmonifier, hihat, and snare need this.
 T = t,
 
-t *= r8 = 10 / 48,
+t *= r8 = 36/48,
+
+t -= t/4&2048, //swang
 
 //seq = ( arr, spd, t2=t ) => arr[ (t2 >> spd) % arr.length ],
 /*version that lerps:
@@ -11,7 +13,7 @@ seq=(r,s,t2=t,x=0)=>(i=t2/2**s,J=i|0,L=r.length,x?(k=(i-J)**x,(1-k)*r[J%L]+k*r[(
 //----SONG SETTINGS-----
 
 //master pitch
-mp = -4,
+mp = 2,
 
 
 
@@ -41,7 +43,7 @@ m = mix = (x, vol=1, dist=0) => ( ( x * vol * ( 1 + dist ) ) % ( 256 * vol ) ) |
 	Works best when effects are not inside conditionals (meaning the number of F in use changes)
 	But even then, should only create a momentary click/pop (might be more severe for reverb)
 */
-T ? 0 : F = r( 2e3, 0 ),
+T ? 0 : F = r( 3e3, 0 ),
 // Index of F, resets to 0 at every t
 I = 0,
 
@@ -51,7 +53,10 @@ mseq = ( ...x ) => (
 	F[I++] += ( r8 * 2 ** ( ( seq(...x) + mp ) / 12))||0
 ),
 
-
+// Waveshaper distortion
+// Assumes range is neatly between 0-255; use after limiter
+// Negative values make it rounder (though after -.6 it goes beyond {0..255} so there are wraparound artifacts)
+ds = (x, amt) => x * (1 - amt) + 127 * ( ( ( x / 127 ) - 1 ) ** 3 + 1 ) * amt,
 
 /* The Breakbeat drum machine. This is where the magic happens
 It sequences through an array and plays the corresponding number of beats
@@ -140,15 +145,109 @@ lim2 = (input, atk, release, thresh) => (
 ),
 
 
+/*
+This limiter is pretty complex
+in most circumstances, a highpass + a simpler limiter will do the job
+but this limiter preserves bass frequencies with minimal distortion
+(though imo the grittyness is usually part of Bytebeat's charm)
+Capable of turning /any/ input into Sosig with minimal distortion, if params are set right
+Also eliminates offsets (very helpful for reverb)
+Ratio is basically infinity and attack is basically instant
+But as long as iters = ~3-8, it won't sound clipped
+	(lower lookeahead does produce somewhat of a hi-pass sound)
+For a subtler effect, lower speed and/or raise thresh
+Latency = lookahead, so use 'wet' if you want parallel compression
+If your input only has peaks going upward (like anything involving beat() or synth() ):
+	then divide speed by 100 and set bias to 99
+	(bias )
+'p' changes how lookaheads affect the function:
+	0, or very large: lower pitches dominate
+	0..1: stacatto and trebly
+Hum reduction is only really noticeable when speed > 9 and thresh is low
+*/
+lim = limiter = (input, speed = .1, lookahead = 512, wet = 1, thresh = 99, bias = 4, iters = 4, saturate = 0, p = 0) => {
+	x = y => I + 2 + ( T + y|0 ) % lookahead;
+	F[ x(0) ] = input; //newest in buffer, equivalent to F[ x(lookahead) ]
+	o = F[ x(1) ]; //oldest in buffer
+	mi = mx = o;
+	for( i=1; i <= iters; i++) { //older to newest
+		y = p ? ( i / (iters+1) ) ** p : 0;
+		z = F[ x( ( i + sin(i)/2 ) * lookahead / iters ) ]; //sin(i) is for hum reduction
+		mi = min( mi, z * (1-y) + o * y );
+		mx = max( mx, z * (1-y) + o * y );
+	}
+	mi = F[ I ] = min( mi, F[ I ] + speed );
+	mx = F[ I+1 ] = max( mx, F[ I+1 ] - speed * ( bias + 1 ), mi + ( t ? thresh : 255 ) ); //could probably be 99
+	I += 2 + lookahead;
+	return ds( ( o - mi ) * 255/(mx-mi), saturate ) * wet + o * (1-wet)
+	//return ds( ( o - mi ) * 2/(mx-mi) - 1, saturate ) * wet + o * (1-wet) //for floatbeat
+
+},
+
+//XORs the input with its harmonics, controlled by the bits of a number ('tone')
+//pretends it uses a wavetable, but doesn't
+hm = harmonify = (x,tone, waveTableSize = 8) => (
+	//waveTableSize *= 64 * T / t | 0,
+	waveTableSize *= 64 / r8 | 0, //swing-proofed
+	r(8).reduce((o,e,i)=>(
+		y = (i+1)/2 * x,
+		o ^ ( ( 1 & (tone>>i) ) * (i+1)/2 * x ) % waveTableSize
+		//o ^ ( ( 1 & (tone>>i) ) * y ) % waveTableSize ^ ( abs( m( tone>>(i+8) * y ) - 128 ) * 2 ) % waveTableSize
+		),0
+	)
+),
+
+// Version 1 of my Synth
+// A new version is in development, but this is the one used in GAv2
+
+//Basically just treat this like a black box and fiddle with the knobs at random
+//For a more detailed exmplanation:
+//	X, and the First 2 hexes of y, are the fun surprise knobs :)
+//		Small changes in these values completely change the tone (most of the time)
+//	The next 2 hexes of y control the harmonifier
+// The next hex controls the *thump*/click/noise of the attack
+// The next hex controls the decay
+// The next 2 hexes control the lowpass
+sy = synth = (melody, velTrack, speed, x, y, ...z)=>
+	lp(
+		min(
+			m(
+				hm(
+					beat( [x], 10, 6e4, 1, melody, .02* ( (y>>24) & 255 ) )
+				, ( y>>16 ) & 255, ...z
+				)
+			, .9,1
+			)
+			+ beat( velTrack, speed, 1e3 * ( (y>>12) & 15) )
+		, beat( velTrack, speed, 1, 2e4 * ( (y>>8) & 15 ) )
+		)
+	, y&255
+	),
 
 //saw 2 sine
 s2s = sinify = x => sin( x*PI/64 ) * 126 + 128,
 
+//replaces wanted char with '1' and everything else with '0'
+on = (str, wanted) =>
+	str.replaceAll( RegExp( '[^' + wanted + ']', 'g' ), '0' ).replaceAll( RegExp( wanted, 'g'), '1' ),
+
+
+
 t||(
 
-ml1='64835582659355636583658265826421',
+m1= [-2,-2,0,0,3,3,3,-2,0,3,5,7,5,5,5,5],
+m2= [7,7,7,3,5,5,7,8,7,7,5,3,0,0,0,0],
+m3= [5,5,5,5,5,7,5,3,0,3,3,-2,0,0,-2,-2],
+m2b=[7,7,7,3,5,5,10,8,7,8,7,3,0,0,0,0],
+mvol=r(1,[r(15,1),0,r(15,1),0,r(15,1),0,1,0,1,0,r(11,1),0]),
+mel=r(1,[m1,m2,m1,m3,m1,m2b,m1,m3]),
+//pcs='1h1h1hh1h1h11hhh',
+//k2 ='1010100101011000',
+k2 ='1010100100011000',
 
-bs1 = [-4,1,-4,-7,-9,-11,-2,3],
+
+//k2=on(pcs,'1'),
+//hh=on(pcs,'h'),
 
 //vibSpeeds = [91,7],
 //vibSpeeds = [91,51,23,7],
@@ -160,28 +259,32 @@ vibSpeeds = r(8,199).map((e,i)=>e/1.618**i),
 
 ),
 
+M = mseq(mel,13,t,8)*4&255,
+M = seq([ s2s(M)*.7, M ], 19, t*PI, 1),
+M*=seq(mvol,13,t,2)/4,
 
-BS = s2s(mseq(bs1,15)),
-//BS *= min(bt([1],12)/25,2),
-BS *= lp(min(bt([1],12,20,60),4),.1),
-BS *= 64/max(64, abs(BS)),
+K = sin(mseq([-28])*PI/64)*lp(bt(k2,13,99,8),.1)*128, 
+K *= 64 / max( 64, abs(K)),
+H = bt([h],13),
 
-mel=ml1[t>>11&31]*t%100*(1-t%2048/2048),
-chords=(mseq(bs1,15)&63)/4,
+sier=x=>5*x&t>>9|3*x&4*t>>12,
 
-V=rvs( mel + chords, 11e3, vibSpeeds, .25, .5, .8 - cos(T/3e5)/16, 6, 0, .1, .5, 9, 1, 9, 299 ),
+V=rvs( M * min(1,.25+T/4e5) + hp(sier(t*.45)&511,.1)/4, 10e3, vibSpeeds, .2, .8, .85, 6, 0, .1, .5, 9, 1, 9, 599 ),
 
-//V=rvs( mel + chords, 7e3, vibSpeeds, .2, .8, .9, 4, 2, .1, .5, 9, 1, 9, 199 + cos(T/3e5)*99, 8,[T,T*3/4,T/2,T*3/2,T/2,T*2,T/2,T] ), //trippy octaving
+//V=rvs( M, 7e3, vibSpeeds, .1, 1, .8, 4, 2, .1, .5, 9, 1, 9, 299 + cos(T/3e5)*99, 8,[T,T*3/4,T/2,T*3/2,T/2,T*2,T/2,T] ), //trippy octaving
 
 
 
 
-Master=ch=>tanh(
+//Master=ch=>tanh(
+Master=ch=>lim(
 	hp(
-		V[ch] * 6 + BS * min(2,T/5e5)
-		//mel&255
+		//V[ch] * 2 + BS * min(2,T/5e5)
+		V[ch] * 2 + K + (H&61) + hp(sier(mseq([-9],1))&511,.4)/8
 	,.001)
-/max(64,128-T/5e4))*1.2,
+// /64),				//tanh floatbeat
+///52)*128+128,	//tanh bytebeat
+,.01),
 
 [Master(0),Master(1)]
 
