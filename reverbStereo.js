@@ -43,7 +43,7 @@ m = mix = (x, vol=1, dist=0) => ( ( x * vol * ( 1 + dist ) ) % ( 256 * vol ) ) |
 	Works best when effects are not inside conditionals (meaning the number of F in use changes)
 	But even then, should only create a momentary click/pop (might be more severe for reverb)
 */
-T ? 0 : F = r( 3e3, 0 ),
+T ? 0 : F = r( 2e4, 0 ),
 // Index of F, resets to 0 at every t
 I = 0,
 
@@ -87,6 +87,7 @@ h = seq( [h,h,h,0], 8), //quieter, faster attack
 	requires old lp(), new hp(), lim2(), r(), and slidy seq() to function
 */
 
+
 rvs = reverbStereo = (
 	input,
 	len = 16e3,
@@ -101,24 +102,45 @@ rvs = reverbStereo = (
 	compAtk = 9,
 	compRel = 1,
 	compThresh = 9, //~9 for bytebeat range (0-255), adjust accordingly for smaller ranges
+	compLookahead = 512, //multiplied by number of voices
 	vibratoDepth = 299, //best around 300, lower=feedbackier
 	voices = vibratoSpeed.length,
 	t2 = r(voices, T ), //array of all T the same size as vibratoSpeed[], could also be T/2 if specified in args
 ) => (
-	x = y => I + voices*3 + ( (y % len) / downsamp )|0, //index within allocated fx memory
+	x = y => I + voices*2 + 1 + ( (y % len) / downsamp )|0, //index within allocated fx memory
 	fbh=[], out=[0,0], //can reuse fbh to save chars, but first 2 outputs will be double volume
 	t2.map( (t2val,i)=> (
-		t2val += vibratoDepth + vibratoDepth * sin(T*vibratoSpeed[i]/3e6),
+		// + downsamp*voices*9 is actually necessary to prevent hum
+		t2val += vibratoDepth*3 + downsamp*voices*9 + vibratoDepth * sin(T*vibratoSpeed[i]/3e6),
 		fbh[i] = hp( lp( seq( F, 0, x(t2val) - i*2, lerpx )||0 , lowpass), highpass)
 	)),
-	F[ x(T) ] = input * (1-feedb) + fbh.reduce((a,e,i)=> a=lim2(
-				a+e, compAtk, compRel/voices, compThresh/voices*(1+i/2)
-		) * feedb )
-	,
-	I += 0|(len / downsamp) + voices*3,
+	F[ x(T) ] = lim2(
+		input * (1-feedb) + fbh.reduce((a,e,i)=>a+e)
+		, compAtk, compRel/voices, compThresh/voices
+		, fbh.reduce((a,e,i)=>
+			max( a, abs(
+			//a + 1/voices * abs((
+				//hp(
+					//F[x(T+i*compLookahead)]
+					//input*(1-feedb) + F[x(T+compLookahead*downsamp/voices*i+sin(i)*downsamp)-i]
+					input*(1-feedb) + F[x(T+compLookahead*downsamp/voices*i+sin(i)*downsamp)-voices+i]
+					//input*(1-feedb) + F[x(len*random())]
+				//,highpass)
+				//,0)
+			))
+		)
+	),
+	I=x(len-1)+1,
 	//fbh.map((e,i)=>fbh[i%2]+=e*wet+input*dry/voices) //first 2 voices will be double volume
 	fbh.map((e,i)=>out[i%2]+=e*wet+input*dry/voices),out
 ),
+
+
+
+//nonlinear instant comp: instant atk/release, greater-than-infinite ratio
+nlc = (input, threshold, ratio=1, sidechain=input ) =>
+	abs(sidechain) > threshold ? input * ( threshold - ratio * (abs(sidechain) - threshold) ) / abs(sidechain) : input
+,
 
 
 //bad lopass (turns things into triangles rather than sins) but good for compressor
@@ -137,9 +159,9 @@ hp = (input,freq) => input - lp(input,freq),
 
 //simple but bad limiter, uses the bad lopass
 //release must be >0
-lim2 = (input, atk, release, thresh) => (
+lim2 = (input, atk, release, thresh, sidechain=0) => (
 	input * thresh / lp2(
-		max( thresh, abs(input))
+		max( thresh, abs(input), abs(sidechain) )
 	,release, atk/release
 	)||0
 ),
@@ -253,14 +275,14 @@ k2 ='1010100100011000',
 //vibSpeeds = [91,51,23,7],
 //vibSpeeds = [91,83,77,67,7,5,3,2],
 //vibSpeeds = r(16,299).map((e,i)=>e/1.618**(i/2)),
-vibSpeeds = r(8,199).map((e,i)=>e/1.618**i),
+vibSpeeds = r(16,199).map((e,i)=>e/1.618**i),
 
 0
 
 ),
 
 M1 = mseq(mel,13,t,8)*4&255,
-M2 = sy(M1,[1],13,1.07,0x710105ff)*2.5,
+M2 = sy(M1,[1],13,1.07,0x7101055f)*2.5,
 M = seq([ M1, s2s(M1)*.6, M2 ], 19, t*5, 1),
 M*=seq(mvol,13,t,2)/4,
 
@@ -270,25 +292,29 @@ H = bt([h],13),
 
 sier=x=>5*x&t>>9|3*x&4*t>>12,
 
-V=rvs( M * min(1,.25+T/4e5) + hp(sier(t*.45)&511,.1)/4, 10e3, vibSpeeds, .2, .8, .85, 6, 0, .1, .5, 9, 1, 9, 599 ),
+//V=rvs( M * min(1,.25+T/4e5) + hp(sier(t*.45)&511,.1)/4, 3e3, vibSpeeds, .4, .8, .9, 6, 0, .1, .5, 9, 1, 9, 99+sin(T)*99, 99 ),
+
+
+V=rvs( M * min(1,.25+T/4e5) + hp(sier(t*.45)&511,.1)/40, 16e3, vibSpeeds, .0, .9, .9, 6, 0, .05, .5, 9, 1, 9, 512, 99 ),
+
 
 //V=rvs( M, 7e3, vibSpeeds, .1, 1, .8, 4, 2, .1, .5, 9, 1, 9, 299 + cos(T/3e5)*99, 8,[T,T*3/4,T/2,T*3/2,T/2,T*2,T/2,T] ), //trippy octaving
 
 
 
 
-//Master=ch=>tanh(
-Master=ch=>lim(
+Master=ch=>tanh(
+//Master=ch=>lim(
 	hp(
 		//V[ch] * 2 + BS * min(2,T/5e5)
-		V[ch] * 2 + K + (H&61) + hp(sier(mseq([-9],1))&511,.4)/8
+		V[ch] * 8 + K + (H&61) + hp(sier(mseq([-9],1))&511,.4)/800
 	,.001)
 // /64),				//tanh floatbeat
-///52)*128+128,	//tanh bytebeat
-,.01),
+/52)*128+128,	//tanh bytebeat
+//,.01),
 
 [Master(0),Master(1)]
 
-
+//,lim2( sin(T/256), 999, 999, .5, sin(T/256)*2  )
 
 //,a=()=>{throw(I)},a() //Determine size of memory stack to initialize
