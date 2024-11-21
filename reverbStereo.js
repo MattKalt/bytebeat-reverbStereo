@@ -209,7 +209,7 @@ hm = harmonify = (x,tone, waveTableSize = 8) => (
 // The next hex controls the decay
 // The next 2 hexes control the lowpass
 sy = synth = (melody, velTrack, speed, x, y, ...z)=>
-	lp(
+	lp2(
 		min(
 			m(
 				hm(
@@ -259,8 +259,9 @@ vibSpeeds = r(8,199).map((e,i)=>e/1.618**i),
 
 ),
 
-M = mseq(mel,13,t,8)*4&255,
-M = seq([ s2s(M)*.7, M ], 19, t*PI, 1),
+M1 = mseq(mel,13,t,8)*4&255,
+M2 = sy(M1,[1],13,1.07,0x710105ff)*2.5,
+M = seq([ M1, s2s(M1)*.6, M2 ], 19, t*5, 1),
 M*=seq(mvol,13,t,2)/4,
 
 K = sin(mseq([-28])*PI/64)*lp(bt(k2,13,99,8),.1)*128, 
