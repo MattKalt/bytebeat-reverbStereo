@@ -114,8 +114,9 @@ rvs = reverbStereo = (
 		t2val += vibratoDepth*3 + 9*downsamp*voices + vibratoDepth * sin(T*vibratoSpeed[i]/3e6),
 		fbh[i] = hp( lp( seq( F, 0, x(t2val) - i*2, lerpx )||0 , lowpass), highpass)
 	)),
-	F[ x(T) ] = input * (1-feedb) + fbh.reduce((a,e,i)=> a=lim2(
+	F[ x(T) ] = input * max(0,1-feedb) + fbh.reduce((a,e,i)=> a=lim2(
 				a+e, compAtk, compRel/voices, compThresh/voices*(1+i/2)
+				//a+e, compAtk, compRel/voices, compThresh
 		) * feedb )
 	,
 	//I += 0|(len / downsamp) + voices*3,
@@ -148,6 +149,9 @@ lim2 = (input, atk, release, thresh) => (
 	)||0
 ),
 
+lim3 = (input, atk, release, thresh) => (
+	max( thresh * -1, min( thresh, input ))
+),
 
 /*
 This limiter is pretty complex
@@ -271,7 +275,13 @@ sier=x=>5*x&t>>9|3*x&4*t>>12,
 t3=r(8).map((e,i)=>T+6e4/1.272**i),
 
 
-V=rvs( M1/4+M2/4+(t&255)/max(4,15e5/t||0), 6e4, vibSpeeds, .1, min(.9,.2+t/5e5), min(.95,.75+t/1e8), 2, 1, .05+sin(T/3e4)/32, .4, 9, 1, 9, min(599,399+t/1e4), 8, t3 ),
+//V=rvs( M1/4+M2/4+(t&255)/max(4,15e5/t||0), 6e4, vibSpeeds, .1, min(.9,.2+t/5e5), min(.95,.75+t/1e8), 2, 1, .05+sin(T/3e4)/32, .4, 9e30, 1e30, 9, min(599,399+t/1e4), 8, t3 ),
+
+V=rvs( M1/4+M2/4+(t&255)/max(4,15e5/t||0), 6e4, vibSpeeds, .1, min(.9,.2+t/5e5), min(.95,.75+t/1e8), 2, 1, .05+sin(T/3e4)/32, .4, 3e-5, 1e30, 1e-1, min(599,399+t/1e4), 8, t3 ),
+
+
+
+//V=rvs( (t&255), 6e4, vibSpeeds, .0, min(.9,.2+t/5e5), min(.95,.75+t/1e8)+.15, 2, 1, .05+sin(T/3e4)/32, .4, 3e-2, 1e30, 1, min(599,399+t/1e4), 8, t3 ),
 
 
 //V=rvs( M * min(1,.25+T/4e5) + hp(sier(mseq([-16],1))&511,.1)/4, 3e4, vibSpeeds, .1, .9, .9, 1.1, 0, .05+sin(T/3e4)/32, .5, 9, 1, 9, 599, 8, t3 ),
@@ -281,15 +291,15 @@ V=rvs( M1/4+M2/4+(t&255)/max(4,15e5/t||0), 6e4, vibSpeeds, .1, min(.9,.2+t/5e5),
 
 
 
-//Master=ch=>tanh(
-Master=ch=>lim(
+Master=ch=>tanh(
+//Master=ch=>lim(
 	hp(
 		V[ch] * 4
 		//V[ch] * 2
 	,.001)
 // /64),				//tanh floatbeat
-///52)*128+128,	//tanh bytebeat
-,.01),
+/52)*128+128,	//tanh bytebeat
+//,.01),
 
 [Master(0),Master(1)]
 
